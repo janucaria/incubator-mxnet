@@ -49,7 +49,6 @@ else()
 endif()
 option(USE_GPERFTOOLS "Build with GPerfTools support" OFF)
 option(USE_JEMALLOC "Build with Jemalloc support"   ON)
-option(USE_DIST_KVSTORE "Build with DIST_KVSTORE support" OFF)
 option(USE_PLUGINS_WARPCTC "Use WARPCTC Plugins" OFF)
 option(USE_PLUGIN_CAFFE "Use Caffe Plugin" OFF)
 option(USE_CPP_PACKAGE "Build C++ Package" OFF)
@@ -57,12 +56,10 @@ option(USE_MXNET_LIB_NAMING "Use MXNet library naming conventions." ON)
 option(USE_GPROF "Compile with gprof (profiling) flag" OFF)
 option(USE_CXX14_IF_AVAILABLE "Build with C++14 if the compiler supports it" OFF)
 option(USE_VTUNE "Enable use of Intel Amplifier XE (VTune)" OFF) # one could set VTUNE_ROOT for search path
-option(USE_TVM_OP "Enable use of TVM operator build system." OFF)
 option(ENABLE_CUDA_RTC "Build with CUDA runtime compilation support" ON)
 option(BUILD_CPP_EXAMPLES "Build cpp examples" ON)
 option(INSTALL_EXAMPLES "Install the example source files." OFF)
 option(USE_SIGNAL_HANDLER "Print stack traces on segfaults." ON)
-option(USE_TENSORRT "Enable inference optimization with TensorRT." OFF)
 option(USE_ASAN "Enable Clang/GCC ASAN sanitizers." OFF)
 option(ENABLE_TESTCOVERAGE "Enable compilation with test coverage metric output" OFF)
 option(USE_INT64_TENSOR_SIZE "Use int64_t to represent the total number of elements in a tensor" OFF)
@@ -75,10 +72,6 @@ message(STATUS "CMAKE_HOST_SYSTEM_PROCESSOR ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 message(STATUS "CMAKE_SYSTEM_PROCESSOR ${CMAKE_SYSTEM_PROCESSOR}")
 
 message(STATUS "CMAKE_SYSTEM_NAME ${CMAKE_SYSTEM_NAME}")
-
-if(USE_TVM_OP)
-  add_definitions(-DMXNET_USE_TVM_OP=1)
-endif()
 
 message(STATUS "CMake version '${CMAKE_VERSION}' using generator '${CMAKE_GENERATOR}'")
 project(mxnet C CXX)
@@ -226,37 +219,6 @@ if(USE_VTUNE)
   include_directories(${VTUNE_ROOT}/include)
   list(APPEND mxnet_LINKER_LIBS ${VTUNE_ROOT}/lib64/libittnotify.a)
   list(APPEND mxnet_LINKER_LIBS dl)
-endif()
-
-if(USE_TENSORRT)
-  message(STATUS "Using TensorRT")
-  set(ONNX_PATH 3rdparty/onnx-tensorrt/third_party/onnx/build/)
-  set(ONNX_TRT_PATH 3rdparty/onnx-tensorrt/build/)
-
-  include_directories(${ONNX_PATH})
-  include_directories(3rdparty/onnx-tensorrt/)
-  include_directories(3rdparty/)
-  include_directories(3rdparty/onnx-tensorrt/third_party/onnx/)
-  add_definitions(-DMXNET_USE_TENSORRT=1)
-  add_definitions(-DONNX_NAMESPACE=onnx)
-
-  find_package(Protobuf REQUIRED)
-
-  find_library(ONNX_LIBRARY NAMES libonnx.so REQUIRED
-          PATHS ${ONNX_PATH}
-          DOC "Path to onnx library.")
-  find_library(ONNX_PROTO_LIBRARY NAMES libonnx_proto.so REQUIRED
-          PATHS ${ONNX_PATH}
-          DOC "Path to onnx_proto library.")
-  find_library(ONNX_TRT_RUNTIME_LIBRARY NAMES libnvonnxparser_runtime.so REQUIRED
-          PATHS ${ONNX_TRT_PATH}
-          DOC "Path to onnx_proto library.")
-  find_library(ONNX_TRT_PARSER_LIBRARY NAMES libnvonnxparser.so REQUIRED
-          PATHS ${ONNX_TRT_PATH}
-          DOC "Path to onnx_proto library.")
-
-  list(APPEND mxnet_LINKER_LIBS libnvinfer.so ${ONNX_TRT_PARSER_LIBRARY} ${ONNX_TRT_RUNTIME_LIBRARY}
-          ${ONNX_PROTO_LIBRARY} ${ONNX_LIBRARY} ${PROTOBUF_LIBRARY})
 endif()
 
 # please note that when you enable this, you might run into an linker not being able to work properly due to large code injection.
@@ -743,43 +705,6 @@ elseif(MSVC)
     add_library(mxnet SHARED ${SOURCE})
   endif()
 
-endif()
-
-if(USE_DIST_KVSTORE)
-  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/ps-lite/CMakeLists.txt)
-    add_subdirectory("3rdparty/ps-lite")
-    list(APPEND pslite_LINKER_LIBS pslite protobuf)
-  else()
-    set(pslite_LINKER_LIBS protobuf zmq-static)
-  endif()
-  add_definitions(-DMXNET_USE_DIST_KVSTORE)
-  include_directories(SYSTEM ${pslite_INCLUDE_DIR})
-  list(APPEND mxnet_LINKER_LIBS ${pslite_LINKER_LIBS})
-endif()
-
-if(USE_TVM_OP)
-  list(APPEND mxnet_LINKER_LIBS ${CMAKE_CURRENT_BINARY_DIR}/3rdparty/tvm/libtvm_runtime.so)
-  include(cmake/BuildTVM.cmake)
-  add_subdirectory("3rdparty/tvm")
-
-  if(NOT Python3_EXECUTABLE)
-    find_package(PythonInterp 3 REQUIRED)
-    set(Python3_EXECUTABLE ${PYTHON_EXECUTABLE} CACHE FILEPATH "Path to the python3 executable")
-    if(NOT Python3_EXECUTABLE)
-      message(FATAL_ERROR "No python3 interpreter found to build TVM operators")
-    endif()
-  endif()
-
-  set(TVM_OP_COMPILE_OPTIONS "-o${CMAKE_CURRENT_BINARY_DIR}/libtvmop.so" "--config" "${CMAKE_CURRENT_BINARY_DIR}/tvmop.conf")
-  if(USE_CUDA)
-    set(TVM_OP_COMPILE_OPTIONS "${TVM_OP_COMPILE_OPTIONS}" "--cuda-arch" "\"${CUDA_ARCH_FLAGS}\"")
-  endif()
-  add_custom_command(TARGET mxnet POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E env
-          PYTHONPATH="${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tvm/python:${CMAKE_CURRENT_SOURCE_DIR}/3rdparty/tvm/topi/python:${CMAKE_CURRENT_SOURCE_DIR}/contrib"
-          LD_LIBRARY_PATH=${CMAKE_CURRENT_BINARY_DIR}:${CMAKE_CURRENT_BINARY_DIR}/3rdparty/tvm:$ENV{LD_LIBRARY_PATH}
-          ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/contrib/tvmop/compile.py ${TVM_OP_COMPILE_OPTIONS}
-    )
 endif()
 
 if(USE_PLUGINS_WARPCTC)

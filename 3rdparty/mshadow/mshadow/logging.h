@@ -111,8 +111,8 @@ inline void InitLogging(const char* argv0) {
 // Poor man version of VLOG
 #define VLOG(x) LOG_INFO.stream()
 
-#define LOG(severity) LOG_##severity.stream()
-#define LG LOG_INFO.stream()
+#define LOG(severity) std::ostringstream{}
+#define LG std::ostringstream{}
 #define LOG_IF(severity, condition) \
   !(condition) ? (void)0 : dmlc::LogMessageVoidify() & LOG(severity)
 
